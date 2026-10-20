@@ -11,8 +11,8 @@ CREATE DATABASE IF NOT EXISTS devops_demo
     COLLATE utf8mb4_unicode_ci;
 
 -- Create application user
-CREATE USER IF NOT EXISTS 'devops_user'@'%' IDENTIFIED BY 'devops_password';
-GRANT ALL PRIVILEGES ON devops_demo.* TO 'devops_user'@'%';
+CREATE USER IF NOT EXISTS 'admin'@'%' IDENTIFIED BY 'devops_password';
+GRANT ALL PRIVILEGES ON devops_demo.* TO 'admin'@'%';
 FLUSH PRIVILEGES;
 
 -- Switch to the database
