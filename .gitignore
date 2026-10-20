@@ -35,3 +35,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Vagrant local machine state
+.vagrant/
