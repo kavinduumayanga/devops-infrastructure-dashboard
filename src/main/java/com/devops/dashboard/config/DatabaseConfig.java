@@ -33,6 +33,7 @@ public final class DatabaseConfig {
     private static HikariDataSource createDataSource() {
         AppConfig config = AppConfig.getInstance();
         HikariConfig hikari = new HikariConfig();
+        hikari.setDriverClassName("com.mysql.cj.jdbc.Driver");
         hikari.setJdbcUrl(config.getDbJdbcUrl());
         hikari.setUsername(config.getDbUser());
         hikari.setPassword(config.getDbPassword());
