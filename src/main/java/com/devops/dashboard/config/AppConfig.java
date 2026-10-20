@@ -38,7 +38,7 @@ public final class AppConfig {
         this.dbHost = env("DB_HOST", "localhost");
         this.dbPort = envInt("DB_PORT", 3306);
         this.dbName = env("DB_NAME", "devops_demo");
-        this.dbUser = env("DB_USER", "devops_user");
+        this.dbUser = env("DB_USER", "admin");
         this.dbPassword = env("DB_PASSWORD", "");
         this.dbPoolSize = envInt("DB_POOL_SIZE", 5);
         this.dbConnectionTimeout = envLong("DB_CONNECTION_TIMEOUT_MS", 5000L);

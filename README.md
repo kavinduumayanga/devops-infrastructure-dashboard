@@ -101,8 +101,39 @@ sudo systemctl start mysql memcached
 
 ### 2. Initialize Database
 
+The initialization script creates `devops_demo` and `demo_records`, then adds
+the five demonstration rows only if the table is empty. It is safe to run
+again: it does not drop objects, delete records, overwrite records, or create
+duplicate seed rows.
+
+Run it locally against a MySQL server:
+
 ```bash
 mysql -u root -p < db/init.sql
+```
+
+To initialize the lab database on `db01`:
+
+```bash
+scp db/init.sql db01:/tmp/devops-dashboard-init.sql
+ssh db01
+mysql -u root -p < /tmp/devops-dashboard-init.sql
+```
+
+Database accounts and grants are deliberately managed separately from this
+schema script. The two existing application accounts, `admin@192.168.56.22`
+and `admin@192.168.56.21`, should retain only the required `SELECT`, `INSERT`,
+`UPDATE`, and `DELETE` privileges on `devops_demo`. The script must not create
+`admin@%`: a `%` host allows the account to authenticate remotely from any
+network host and weakens the host restrictions already applied to the two
+Tomcat servers.
+
+Verify the table and seed data after initialization:
+
+```bash
+mysql -u root -p -D devops_demo -e "SHOW CREATE TABLE demo_records\G"
+mysql -u root -p -D devops_demo -e \
+  "SELECT id, name, description, created_at FROM demo_records ORDER BY id;"
 ```
 
 ### 3. Build the Application
@@ -132,26 +163,78 @@ cp target/devops-dashboard.war $CATALINA_HOME/webapps/
 
 ### 5. Configure Environment
 
-Set environment variables for Tomcat. Create `$CATALINA_HOME/bin/setenv.sh`:
+The same WAR is portable across both Tomcat servers because all database
+connection settings are read at runtime. For this lab deployment, both
+instances use the following non-secret connection details:
+
+```text
+MySQL Host: 192.168.56.25
+MySQL Port: 3306
+Database: devops_demo
+Application Username: admin
+```
+
+Do not put the database password in the WAR, source code, README, or Git. Set
+it securely on each application server at deployment time.
+
+For a standalone Tomcat installation, create
+`$CATALINA_HOME/bin/setenv.sh` on each server and restrict its permissions:
 
 ```bash
 #!/bin/bash
 
 # Application
 export APP_ENV=production
-export APP_INSTANCE_ID=$(hostname)
+export APP_INSTANCE_ID="$(hostname)"
 
 # MySQL
-export DB_HOST=your-mysql-host
+export DB_HOST=192.168.56.25
 export DB_PORT=3306
 export DB_NAME=devops_demo
-export DB_USER=devops_user
-export DB_PASSWORD=your_secure_password
+export DB_USER=admin
+export DB_PASSWORD='set-securely-on-this-server'
+export DB_POOL_SIZE=5
+export DB_CONNECTION_TIMEOUT_MS=5000
 
 # Memcached
-export MEMCACHED_HOST=your-memcached-host
+export MEMCACHED_HOST=192.168.56.24
 export MEMCACHED_PORT=11211
 export CACHE_TTL_SECONDS=60
+export CACHE_OPERATION_TIMEOUT_MS=3000
+```
+
+```bash
+chmod 600 "$CATALINA_HOME/bin/setenv.sh"
+```
+
+Replace the password placeholder on each server without committing the
+resulting file. Alternatively, a systemd-managed Tomcat service can read the
+settings from a root-owned environment file. Add a service override with
+`sudo systemctl edit tomcat` (use the actual Tomcat unit name if different):
+
+```ini
+[Service]
+EnvironmentFile=/etc/devops-dashboard/database.env
+```
+
+Create `/etc/devops-dashboard/database.env` on both `app01` and `app02`:
+
+```dotenv
+DB_HOST=192.168.56.25
+DB_PORT=3306
+DB_NAME=devops_demo
+DB_USER=admin
+DB_PASSWORD=set-securely-on-this-server
+DB_POOL_SIZE=5
+DB_CONNECTION_TIMEOUT_MS=5000
+```
+
+Protect the environment file, reload systemd, and restart Tomcat:
+
+```bash
+sudo chmod 600 /etc/devops-dashboard/database.env
+sudo systemctl daemon-reload
+sudo systemctl restart tomcat
 ```
 
 Tomcat does not load `.env` files automatically. Use `.env.example` as a
@@ -175,7 +258,7 @@ http://localhost:8080/devops-dashboard/
 | `DB_HOST` | `localhost` | MySQL host |
 | `DB_PORT` | `3306` | MySQL port |
 | `DB_NAME` | `devops_demo` | Database name |
-| `DB_USER` | `devops_user` | Database username |
+| `DB_USER` | `admin` | Database username |
 | `DB_PASSWORD` | *(empty)* | Database password |
 | `DB_POOL_SIZE` | `5` | HikariCP pool size |
 | `DB_CONNECTION_TIMEOUT_MS` | `5000` | Connection timeout |
@@ -188,9 +271,9 @@ http://localhost:8080/devops-dashboard/
 
 ### Deployment Steps
 
-1. Build the WAR once:
+1. Build and verify the WAR once:
    ```bash
-   mvn clean package
+   mvn clean verify
    ```
 
 2. Copy the **same WAR** to both servers:
@@ -199,7 +282,8 @@ http://localhost:8080/devops-dashboard/
    scp target/devops-dashboard.war app02:/opt/tomcat/webapps/
    ```
 
-3. Configure each server's `setenv.sh` with appropriate `APP_INSTANCE_ID`:
+3. Configure both servers with the database environment described above.
+   Use the same database settings and only vary `APP_INSTANCE_ID`:
 
    **app01:**
    ```bash
@@ -211,9 +295,29 @@ http://localhost:8080/devops-dashboard/
    export APP_INSTANCE_ID=app02
    ```
 
-4. Both servers must point to the **same MySQL** and **same Memcached** instance.
+4. Both servers must point to MySQL at `192.168.56.25:3306`, database
+   `devops_demo`, and the same Memcached instance. The MySQL accounts are
+   host-scoped, but both use the application username `admin`.
 
-5. Configure Nginx for round-robin load balancing:
+5. Restart Tomcat on each server, then verify database connectivity locally
+   through the deployed application:
+
+   ```bash
+   # Run on app01 and app02
+   curl -fsS http://localhost:8080/devops-dashboard/api/database/health
+   curl -fsS http://localhost:8080/devops-dashboard/api/records
+   ```
+
+   If the MySQL client is installed, also test the network path and account
+   directly from each Tomcat server. `-p` prompts without exposing the
+   password in shell history:
+
+   ```bash
+   mysql -h 192.168.56.25 -P 3306 -u admin -p -D devops_demo \
+     -e "SELECT 1; SELECT COUNT(*) AS record_count FROM demo_records;"
+   ```
+
+6. Configure Nginx for round-robin load balancing:
 
    ```nginx
    upstream tomcat_backend {
