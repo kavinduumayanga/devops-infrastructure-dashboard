@@ -65,9 +65,9 @@ export const INFRA_NODES: InfraNode[] = [
     ip: '192.168.56.20',
     port: 80,
     service: 'Nginx',
-    monitoring: 'not-monitored',
+    monitoring: 'monitored',
     monitoringNote:
-      'Configured gateway — not independently monitored by this application. If you can reach this dashboard, Nginx is routing traffic.',
+      'Direct HTTP probe to the dedicated Nginx health endpoint; this does not verify every upstream.',
     layer: 1,
   },
   {
@@ -80,7 +80,7 @@ export const INFRA_NODES: InfraNode[] = [
     service: 'Apache Tomcat 10.1',
     monitoring: 'monitored',
     monitoringNote:
-      'Health is determined by successful API responses from this instance.',
+      'Direct peer probe validates both HTTP health and the returned instance identity.',
     layer: 2,
   },
   {
@@ -93,7 +93,7 @@ export const INFRA_NODES: InfraNode[] = [
     service: 'Apache Tomcat 10.1',
     monitoring: 'monitored',
     monitoringNote:
-      'Health is inferred from browser-observed responses. Not handling the current request does not indicate failure.',
+      'Direct peer probe validates both HTTP health and the returned instance identity.',
     layer: 2,
   },
   {
@@ -131,9 +131,9 @@ export const INFRA_NODES: InfraNode[] = [
     port: 5672,
     additionalPorts: [{ label: 'Management UI', port: 15672 }],
     service: 'RabbitMQ',
-    monitoring: 'not-monitored',
+    monitoring: 'monitored',
     monitoringNote:
-      'Configured — application-level monitoring not implemented. AMQP 5672 for messaging, 15672 for management.',
+      'Management API metrics when credentials are configured; otherwise TCP connectivity is explicitly reported as degraded.',
     layer: 3,
   },
   {
@@ -144,9 +144,9 @@ export const INFRA_NODES: InfraNode[] = [
     ip: '192.168.56.26',
     port: 2049,
     service: 'NFSv4',
-    monitoring: 'not-monitored',
+    monitoring: 'monitored',
     monitoringNote:
-      'Configured — application-level monitoring not implemented. Exports /srv/nfs/shared, mounted at /mnt/nfs-shared on app servers.',
+      'Linux mount identity and read access are verified. The optional write probe uses a unique temporary file.',
     meta: {
       'Export Path': '/srv/nfs/shared',
       'Client Mount': '/mnt/nfs-shared',

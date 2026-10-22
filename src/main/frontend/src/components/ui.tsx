@@ -11,7 +11,7 @@ const STATUS_CONFIG: Record<string, {
 }> = {
   UP:       { bg: 'bg-emerald-500/10', text: 'text-emerald-400', dot: 'up',       label: 'Healthy',      title: 'Service is responding normally' },
   DOWN:     { bg: 'bg-red-500/10',     text: 'text-red-400',     dot: 'down',     label: 'Down',         title: 'Service check returned failure' },
-  UNKNOWN:  { bg: 'bg-slate-700/50',   text: 'text-slate-400',   dot: 'unknown',  label: 'Not Monitored', title: 'No monitoring data available' },
+  UNKNOWN:  { bg: 'bg-slate-700/50',   text: 'text-slate-400',   dot: 'unknown',  label: 'Unknown',       title: 'No current monitoring data is available' },
   LOADING:  { bg: 'bg-slate-700/50',   text: 'text-slate-400',   dot: 'unknown',  label: 'Loading…',     title: 'Check in progress' },
   STALE:    { bg: 'bg-amber-500/10',   text: 'text-amber-400',   dot: 'stale',    label: 'Stale',        title: 'Last observation is no longer recent' },
   CHECKING: { bg: 'bg-blue-500/10',    text: 'text-blue-400',    dot: 'checking', label: 'Checking…',    title: 'Health check request is in flight' },
@@ -58,6 +58,7 @@ export function StatusCard({ title, status, icon, children, className = '', acti
     LOADING: 'border-l-slate-600/40',
     STALE:   'border-l-amber-500/40',
     CHECKING: 'border-l-blue-500/40',
+    DEGRADED: 'border-l-amber-500/40',
   };
 
   return (

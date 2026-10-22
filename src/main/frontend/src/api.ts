@@ -8,6 +8,7 @@ import type {
   CacheDemoResponse,
   CacheStats,
   RequestEntry,
+  InfrastructureHealth,
 } from './types';
 
 /**
@@ -158,6 +159,12 @@ export async function clearCacheDemo(): Promise<ApiResponse<{ cleared: boolean }
 
 export async function fetchCacheStats(): Promise<ApiResponse<CacheStats>> {
   return apiCall<CacheStats>('/cache/stats');
+}
+
+// === Unified infrastructure monitoring ===
+
+export async function fetchInfrastructureHealth(): Promise<ApiResponse<InfrastructureHealth>> {
+  return apiCall<InfrastructureHealth>('/infrastructure/health');
 }
 
 // === Load Balancing Test ===

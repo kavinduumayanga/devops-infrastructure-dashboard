@@ -15,6 +15,7 @@ public final class MemcachedConfig {
     private static final Logger log = LoggerFactory.getLogger(MemcachedConfig.class);
 
     private static volatile MemcachedClient client;
+    private static volatile long initializationStartedAtMs;
 
     private MemcachedConfig() {}
 
@@ -22,6 +23,7 @@ public final class MemcachedConfig {
         if (client == null) {
             synchronized (MemcachedConfig.class) {
                 if (client == null) {
+                    initializationStartedAtMs = System.currentTimeMillis();
                     client = createClient();
                 }
             }
@@ -56,6 +58,12 @@ public final class MemcachedConfig {
         }
     }
 
+    public static boolean isInitializing() {
+        return client != null && client.getAvailableServers().isEmpty()
+                && System.currentTimeMillis() - initializationStartedAtMs
+                < AppConfig.getInstance().getCacheOperationTimeoutMs() * 2;
+    }
+
     public static void shutdown() {
         if (client != null) {
             log.info("Shutting down Memcached client");
@@ -65,6 +73,7 @@ public final class MemcachedConfig {
                 log.warn("Error shutting down Memcached client: {}", e.getMessage());
             }
             client = null;
+            initializationStartedAtMs = 0;
         }
     }
 }

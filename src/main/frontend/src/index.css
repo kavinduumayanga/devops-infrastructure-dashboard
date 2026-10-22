@@ -326,10 +326,16 @@ html:not([data-theme]) body {
   transition: stroke var(--transition-default), stroke-width var(--transition-default);
 }
 
-.topology-line.active {
-  stroke: var(--status-healthy);
+.topology-line.observed {
+  stroke: var(--accent-cyan);
   stroke-width: 2;
-  filter: drop-shadow(0 0 3px var(--status-healthy));
+  stroke-dasharray: 8 5;
+  animation: observed-route 1.8s linear infinite;
+  filter: drop-shadow(0 0 3px var(--accent-cyan));
+}
+
+@keyframes observed-route {
+  to { stroke-dashoffset: -26; }
 }
 
 .topology-line.highlighted {

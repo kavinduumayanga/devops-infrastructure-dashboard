@@ -156,8 +156,10 @@ public class CacheService {
                 );
             } else {
                 return Map.of(
-                    "status", "DOWN",
-                    "error", "No available Memcached servers",
+                    "status", MemcachedConfig.isInitializing() ? "CHECKING" : "DOWN",
+                    "error", MemcachedConfig.isInitializing()
+                            ? "Memcached client is establishing its initial connection"
+                            : "No available Memcached servers",
                     "latencyMs", latencyMs
                 );
             }

@@ -139,6 +139,25 @@ export interface CacheEvent {
  * - STALE:    The last observation is no longer recent enough.
  * - CHECKING: A health check request is currently in flight.
  */
-export type ServiceStatus = 'UP' | 'DOWN' | 'UNKNOWN' | 'LOADING' | 'STALE' | 'CHECKING';
+export type ServiceStatus = 'UP' | 'DOWN' | 'UNKNOWN' | 'LOADING' | 'STALE' | 'CHECKING' | 'DEGRADED';
+
+export interface InfrastructureServiceHealth {
+  id: string;
+  name: string;
+  status: ServiceStatus;
+  monitoringType: string;
+  latencyMs?: number;
+  lastCheckedAt?: string;
+  lastSuccessfulAt?: string;
+  error?: string;
+  details?: Record<string, unknown>;
+}
+
+export interface InfrastructureHealth {
+  checkedAt: string;
+  monitoringEnabled: boolean;
+  stale: boolean;
+  services: InfrastructureServiceHealth[];
+}
 
 export type PageId = 'overview' | 'servers' | 'database' | 'cache' | 'requests' | 'system';

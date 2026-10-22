@@ -42,6 +42,7 @@ A production-quality Java web application demonstrating multi-tier infrastructur
 - **Memcached Cache-Aside Pattern** — Demonstrates cache hit/miss with real timing
 - **Professional Dashboard UI** — Dark-themed, Grafana-inspired monitoring interface
 - **Infrastructure Topology** — Interactive SVG visualization of the deployment architecture
+- **Real Infrastructure Health** — Bounded HTTP, JDBC, cache, RabbitMQ, and NFS checks for all seven VMs
 - **Request Activity Tracking** — Client-observed metrics with charts and history
 
 ## Technology Stack
@@ -201,6 +202,23 @@ export MEMCACHED_HOST=192.168.56.24
 export MEMCACHED_PORT=11211
 export CACHE_TTL_SECONDS=60
 export CACHE_OPERATION_TIMEOUT_MS=3000
+
+# Infrastructure monitoring
+export INFRA_MONITORING_ENABLED=true
+export INFRA_MONITORING_INTERVAL_SECONDS=15
+export INFRA_MONITORING_TIMEOUT_MS=3000
+export NGINX_HEALTH_URL=http://192.168.56.20/nginx-health
+export APP01_HEALTH_URL=http://192.168.56.22:8080/devops-dashboard/api/instance
+export APP02_HEALTH_URL=http://192.168.56.21:8080/devops-dashboard/api/instance
+export RABBITMQ_HOST=192.168.56.23
+export RABBITMQ_PORT=5672
+export RABBITMQ_MANAGEMENT_URL=http://192.168.56.23:15672
+export RABBITMQ_MONITOR_USERNAME=devops_monitor
+export RABBITMQ_MONITOR_PASSWORD='set-securely-on-this-server'
+export NFS_MOUNT_PATH=/mnt/nfs-shared
+export NFS_EXPECTED_SERVER=192.168.56.26
+export NFS_EXPECTED_EXPORT=/srv/nfs/shared
+export NFS_WRITE_PROBE_ENABLED=false
 ```
 
 ```bash
@@ -266,14 +284,31 @@ http://localhost:8080/devops-dashboard/
 | `MEMCACHED_PORT` | `11211` | Memcached port |
 | `CACHE_TTL_SECONDS` | `60` | Cache TTL |
 | `CACHE_OPERATION_TIMEOUT_MS` | `3000` | Cache operation timeout |
+| `INFRA_MONITORING_ENABLED` | `false` | Enables real probes; leave off for disconnected development |
+| `INFRA_MONITORING_INTERVAL_SECONDS` | `15` | Minimum age before a request refreshes the shared snapshot (5–3600) |
+| `INFRA_MONITORING_TIMEOUT_MS` | `3000` | Per-probe upper bound (250–30000) |
+| `NGINX_HEALTH_URL` | lab URL | Dedicated direct-return Nginx endpoint |
+| `APP01_HEALTH_URL` / `APP02_HEALTH_URL` | lab URLs | Direct Tomcat instance endpoints, never routed through Nginx |
+| `RABBITMQ_MANAGEMENT_URL` | *(empty)* | Management API base; empty credentials select TCP-only fallback |
+| `RABBITMQ_MONITOR_USERNAME` / `RABBITMQ_MONITOR_PASSWORD` | *(empty)* | Server-side monitoring identity |
+| `NFS_MOUNT_PATH` | `/mnt/nfs-shared` | Existing client mount to inspect |
+| `NFS_EXPECTED_SERVER` / `NFS_EXPECTED_EXPORT` | lab values | Expected mount identity |
+| `NFS_WRITE_PROBE_ENABLED` | `false` | Enables unique temporary write/read/delete check |
 
 ## Deploying to Two Tomcat Servers
 
 ### Deployment Steps
 
-1. Build and verify the WAR once:
+1. On a trusted build host, check out or update the GitHub repository, review
+   the exact revision, and build the WAR once:
    ```bash
+   git clone https://github.com/YOUR_ORG/devops-infrastructure-dashboard.git
+   cd devops-infrastructure-dashboard
+   # For an existing checkout: git pull --ff-only
+   git status --short
+   git rev-parse HEAD
    mvn clean verify
+   sha256sum target/devops-dashboard.war
    ```
 
 2. Copy the **same WAR** to both servers:
@@ -281,6 +316,9 @@ http://localhost:8080/devops-dashboard/
    scp target/devops-dashboard.war app01:/opt/tomcat/webapps/
    scp target/devops-dashboard.war app02:/opt/tomcat/webapps/
    ```
+
+   Compare the SHA-256 digest on both destinations before restarting. Preserve
+   the previous WAR outside `webapps` as the rollback artifact.
 
 3. Configure both servers with the database environment described above.
    Use the same database settings and only vary `APP_INSTANCE_ID`:
@@ -299,12 +337,14 @@ http://localhost:8080/devops-dashboard/
    `devops_demo`, and the same Memcached instance. The MySQL accounts are
    host-scoped, but both use the application username `admin`.
 
-5. Restart Tomcat on each server, then verify database connectivity locally
+5. Restart one Tomcat at a time so Nginx can continue using the other instance,
+   verify it, and only then continue to the second. Verify database connectivity locally
    through the deployed application:
 
    ```bash
    # Run on app01 and app02
    curl -fsS http://localhost:8080/devops-dashboard/api/database/health
+   curl -fsS http://localhost:8080/devops-dashboard/api/infrastructure/health
    curl -fsS http://localhost:8080/devops-dashboard/api/records
    ```
 
@@ -336,6 +376,13 @@ http://localhost:8080/devops-dashboard/
            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
            proxy_set_header X-Forwarded-Proto $scheme;
        }
+
+       # Returned by Nginx itself; never proxy this location to Tomcat.
+       location = /nginx-health {
+           access_log off;
+           default_type text/plain;
+           return 200 "healthy\n";
+       }
    }
    ```
 
@@ -353,6 +400,73 @@ http://localhost:8080/devops-dashboard/
 | `GET` | `/api/cache/demo` | Cache-aside demo |
 | `DELETE` | `/api/cache/demo` | Clear demo cache |
 | `GET` | `/api/cache/stats` | Cache statistics |
+| `GET` | `/api/infrastructure/health` | Cached normalized health for all seven infrastructure VMs |
+
+## Infrastructure Monitoring Operations
+
+The unified endpoint returns `UP`, `DOWN`, `UNKNOWN`, `CHECKING`, `STALE`, or
+`DEGRADED`, with check time, last successful time, measured latency, a safe
+display error, and only measurements actually returned by the service. A
+dependency failure remains an HTTP 200 API response with that service marked
+down; an unavailable monitoring subsystem is an API-level 503.
+
+The snapshot is request-triggered and shared inside each WAR instance for the
+configured interval. Probes use a fixed four-thread maximum and bounded queue,
+and the executor is stopped during WAR undeployment. Because the identical WAR
+runs on two Tomcats, each enabled Tomcat maintains its own small cache and may
+probe once per interval. Set `INFRA_MONITORING_ENABLED=false` on one instance
+if a single active monitoring origin is required; its dashboard reports
+`UNKNOWN` rather than inventing health.
+
+### Nginx
+
+Add the exact-match `/nginx-health` location shown above inside the `web01`
+server block, validate with `sudo nginx -t`, reload Nginx, and allow HTTP from
+both application VMs. The check proves that Nginx answers HTTP directly. It
+does not prove that either upstream Tomcat is healthy.
+
+### RabbitMQ least-privileged identity
+
+Create a dedicated identity on `rmq01`; do not give it the administrator tag.
+The `monitoring` tag permits management monitoring endpoints, while empty
+configure/write/read regexes prevent queue operations. Scope visibility to the
+`devops` vhost:
+
+```bash
+sudo rabbitmqctl add_user devops_monitor 'choose-a-long-random-secret'
+sudo rabbitmqctl set_user_tags devops_monitor monitoring
+sudo rabbitmqctl set_permissions -p devops devops_monitor '^$' '^$' '^$'
+```
+
+Store the secret only in root-owned Tomcat environment configuration. If the
+management URL or credentials are absent, the dashboard performs a TCP connect
+to port 5672 and reports `DEGRADED`; that result is connectivity only and no
+queue, connection, message, version, or memory metric is fabricated. An HTTP
+401/403 is reported as an authentication failure without returning credentials.
+
+### NFS
+
+Mount `192.168.56.26:/srv/nfs/shared` at `/mnt/nfs-shared` through the operating
+system before Tomcat starts. The application never mounts, unmounts, edits
+`/etc/fstab`, or overwrites application data. On Linux it validates
+`/proc/self/mountinfo` for an `nfs`/`nfs4` filesystem with the exact server,
+export, and mount point, then verifies read access. Unsupported platforms yield
+`UNKNOWN`. The optional write probe creates a UUID-named hidden file, reads it,
+and deletes it in `finally`; read-only verification is the safe default.
+
+NFS syscalls can remain blocked inside the kernel after Java cancels a timed-out
+task. The fixed executor prevents unlimited threads, but an unhealthy hard NFS
+mount can consume a worker until the kernel returns. OS mount timeout policy is
+therefore still important.
+
+### Network and troubleshooting
+
+Permit both app VMs to reach `web01:80`, each other on `8080`, `db01:3306`,
+`mc01:11211`, `rmq01:5672` and `15672`, and `nfs01:2049`. Keep the management
+API and Tomcat ports private; never expose monitoring credentials to frontend
+environment variables. Diagnose failures from each Tomcat host with direct
+`curl`/`nc` checks, confirm exact `APP_INSTANCE_ID` values (`app01`, `app02`),
+verify RabbitMQ user permissions, and inspect `findmnt -T /mnt/nfs-shared`.
 
 `GET /api/cache/demo` reports `HIT`, `MISS`, or `UNAVAILABLE` based on the
 actual cache lookup. If Memcached is unavailable, the data is served from

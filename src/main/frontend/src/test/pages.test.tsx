@@ -16,6 +16,7 @@ import {
   fetchCacheStats,
   fetchDatabaseHealth,
   fetchInstance,
+  fetchInfrastructureHealth,
   fetchRecords,
   fetchSystemInfo,
   getRequestHistory,
@@ -31,6 +32,7 @@ vi.mock('../api', () => ({
   fetchCacheStats: vi.fn(),
   fetchDatabaseHealth: vi.fn(),
   fetchInstance: vi.fn(),
+  fetchInfrastructureHealth: vi.fn(),
   fetchRecords: vi.fn(),
   fetchSystemInfo: vi.fn(),
   getRequestHistory: vi.fn(),
@@ -78,6 +80,23 @@ beforeEach(() => {
   vi.mocked(fetchCacheStats).mockResolvedValue({
     success: true,
     data: { status: 'UNAVAILABLE' },
+  });
+  vi.mocked(fetchInfrastructureHealth).mockResolvedValue({
+    success: true,
+    data: {
+      checkedAt: '2026-10-20T09:00:00Z',
+      monitoringEnabled: true,
+      stale: false,
+      services: [
+        { id: 'web01', name: 'Nginx', status: 'UP', monitoringType: 'HTTP', latencyMs: 2 },
+        { id: 'app01', name: 'Apache Tomcat', status: 'UP', monitoringType: 'DIRECT_HTTP_INSTANCE' },
+        { id: 'app02', name: 'Apache Tomcat', status: 'UP', monitoringType: 'DIRECT_HTTP_INSTANCE' },
+        { id: 'db01', name: 'MySQL', status: 'UP', monitoringType: 'JDBC' },
+        { id: 'mc01', name: 'Memcached', status: 'UP', monitoringType: 'MEMCACHED_READ_WRITE' },
+        { id: 'rmq01', name: 'RabbitMQ', status: 'DEGRADED', monitoringType: 'TCP_CONNECTIVITY_ONLY' },
+        { id: 'nfs01', name: 'NFSv4', status: 'UP', monitoringType: 'NFS_MOUNT_READ_ONLY' },
+      ],
+    },
   });
   vi.mocked(fetchRecords).mockResolvedValue({ success: true, data: [record] });
   vi.mocked(fetchSystemInfo).mockResolvedValue({

@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Server, Database, HardDrive, ChevronRight, Activity } from 'lucide-react';
-import { fetchInstance, fetchDatabaseHealth, fetchCacheHealth, getRequestHistory } from '../api';
+import { fetchInstance, fetchDatabaseHealth, fetchCacheHealth, fetchInfrastructureHealth, getRequestHistory } from '../api';
 import { StatusCard, MetricRow, SkeletonCard, ErrorState, SectionHeader, Badge } from '../components/ui';
 import InfraTopology, { type NodeStatusMap } from '../components/InfraTopology';
-import type { InstanceInfo, DatabaseHealth, CacheHealth, ServiceStatus, RequestEntry } from '../types';
+import type { InstanceInfo, DatabaseHealth, CacheHealth, InfrastructureHealth, ServiceStatus, RequestEntry } from '../types';
 
 export default function OverviewPage() {
   const [instance, setInstance] = useState<InstanceInfo | null>(null);
@@ -13,14 +13,33 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [recentRequests, setRecentRequests] = useState<RequestEntry[]>([]);
+  const [infrastructureHealth, setInfrastructureHealth] = useState<InfrastructureHealth | null>(null);
+  const [monitoringError, setMonitoringError] = useState<string | null>(null);
 
   useEffect(() => {
     loadAll();
+    const poll = window.setInterval(loadInfrastructure, 15_000);
+    return () => window.clearInterval(poll);
   }, []);
+
+  async function loadInfrastructure() {
+    try {
+      const response = await fetchInfrastructureHealth();
+      if (response.success) {
+        setInfrastructureHealth(response.data);
+        setMonitoringError(null);
+      } else {
+        setMonitoringError(response.error || 'Infrastructure monitoring request failed');
+      }
+    } catch (error: any) {
+      setMonitoringError(error.message || 'Infrastructure monitoring request failed');
+    }
+  }
 
   async function loadAll() {
     setLoading(true);
     const errs: Record<string, string> = {};
+    void loadInfrastructure();
 
     try {
       const res = await fetchInstance();
@@ -68,86 +87,38 @@ export default function OverviewPage() {
         ? 'DOWN'
         : 'LOADING';
 
-  // Build node status map for topology
+  // Build the topology only from the unified monitoring API. Browser-observed
+  // responder identity remains a separate routing observation.
   const nodeStatuses: NodeStatusMap = useMemo(() => {
     const map: NodeStatusMap = {};
-
-    // Nginx: not monitored — we can infer it's routing if we got a response
-    map['web01'] = { status: 'UNKNOWN' };
-
-    // Current Tomcat (the one that responded)
-    if (instance) {
-      const responderId = instance.instanceId;
-      // Try to match instance to configured app servers
-      if (responderId.includes('app01') || responderId.includes('app02')) {
-        map[responderId] = {
-          status: instanceStatus,
-          version: instance.servletContainerInfo,
-          extra: {
-            'Java': instance.javaVersion,
-            'Environment': instance.environment,
-            'Uptime': instance.uptime,
-          },
-        };
-        // Peer: we don't know its state — it's just "not currently responding"
-        const peerId = responderId === 'app01' ? 'app02' : 'app01';
-        // Check request history for any observation of the peer
-        const peerObservations = getRequestHistory().filter(r => r.instanceId === peerId);
-        if (peerObservations.length > 0) {
-          const lastPeer = peerObservations[0];
-          map[peerId] = {
-            status: lastPeer.status >= 200 && lastPeer.status < 400 ? 'UP' : 'UNKNOWN',
-            lastSeen: lastPeer.timestamp,
-          };
-        } else {
-          map[peerId] = { status: 'UNKNOWN' };
-        }
-      } else {
-        // Unknown instance id — put both as unknown
-        map['app01'] = { status: instanceStatus, extra: { 'Instance': responderId } };
-        map['app02'] = { status: 'UNKNOWN' };
-      }
-    } else {
-      map['app01'] = { status: instanceStatus };
-      map['app02'] = { status: 'UNKNOWN' };
+    infrastructureHealth?.services.forEach(service => {
+      const details = Object.fromEntries(Object.entries(service.details || {}).map(([key, value]) => [
+        key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()),
+        typeof value === 'object' ? JSON.stringify(value) : String(value),
+      ]));
+      map[service.id] = {
+        status: service.status,
+        lastCheckedAt: service.lastCheckedAt,
+        lastSuccessfulAt: service.lastSuccessfulAt,
+        latencyMs: service.latencyMs,
+        monitoringType: service.monitoringType,
+        error: service.error,
+        extra: details,
+      };
+    });
+    if (!infrastructureHealth) {
+      ['web01', 'app01', 'app02', 'db01', 'mc01', 'rmq01', 'nfs01'].forEach(id => {
+        map[id] = { status: monitoringError ? 'UNKNOWN' : 'CHECKING' };
+      });
     }
-
-    // MySQL
-    map['db01'] = {
-      status: dbStatus,
-      latencyMs: dbHealth?.pingLatencyMs,
-      version: dbHealth?.version,
-      extra: dbHealth ? {
-        'Database': dbHealth.database,
-        'Host': `${dbHealth.host}:${dbHealth.port}`,
-        ...(dbHealth.recordCount != null ? { 'Records': String(dbHealth.recordCount) } : {}),
-      } : undefined,
-    };
-
-    // Memcached
-    map['mc01'] = {
-      status: cacheStatus,
-      latencyMs: cacheHealth?.latencyMs,
-      extra: cacheHealth ? {
-        'R/W Test': cacheHealth.readWriteTest || 'N/A',
-        'TTL': cacheHealth.ttlSeconds != null ? `${cacheHealth.ttlSeconds}s` : 'N/A',
-        ...(cacheHealth.error ? { 'Error': cacheHealth.error } : {}),
-      } : undefined,
-    };
-
-    // RabbitMQ and NFS: not monitored
-    map['rmq01'] = { status: 'UNKNOWN' };
-    map['nfs01'] = { status: 'UNKNOWN' };
-
     return map;
-  }, [instance, instanceStatus, dbHealth, dbStatus, cacheHealth, cacheStatus]);
+  }, [infrastructureHealth, monitoringError]);
 
-  const currentResponderId = instance?.instanceId;
-
-  // Count monitored services
-  const monitoredStatuses = [instanceStatus, dbStatus, cacheStatus];
-  const healthyCount = monitoredStatuses.filter(s => s === 'UP').length;
-  const loadingServices = monitoredStatuses.filter(s => s === 'LOADING').length > 0;
+  const currentResponderId = instance?.instanceId?.includes('app01')
+    ? 'app01'
+    : instance?.instanceId?.includes('app02')
+      ? 'app02'
+      : undefined;
 
   if (loading) {
     return (
@@ -246,13 +217,14 @@ export default function OverviewPage() {
 
       {/* Infrastructure Topology — full width, prominent */}
       <div className="mb-6">
+        {monitoringError && (
+          <div className="mb-3 rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-2 text-xs text-red-300" role="alert">
+            Monitoring refresh failed: {monitoringError}. Existing node observations are preserved when available.
+          </div>
+        )}
         <InfraTopology
           nodeStatuses={nodeStatuses}
-          currentResponderId={
-            currentResponderId?.includes('app01') || currentResponderId?.includes('app02')
-              ? currentResponderId
-              : undefined
-          }
+          currentResponderId={currentResponderId}
         />
       </div>
 
