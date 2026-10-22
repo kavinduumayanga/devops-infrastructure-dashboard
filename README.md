@@ -10,7 +10,7 @@ This is my first hands-on DevOps project, built to learn and practise DevOps fun
 
 ![Multi-tier Java web application architecture](docs/architecture/infrastructure.png)
 
-The project runs locally across seven Linux virtual machines created with Vagrant and VMware Fusion. Nginx receives browser traffic and distributes requests between two Tomcat servers. The application servers share MySQL, Memcached, RabbitMQ, and NFS services, while the dashboard displays the health of the infrastructure.
+The project runs locally across seven Linux virtual machines created with Vagrant and VMware Fusion. Nginx receives browser traffic and distributes requests between two Tomcat servers. Both application servers use the shared MySQL, Memcached, and NFS services, while the dashboard also monitors RabbitMQ and the infrastructure hosting it.
 
 The editable diagram is available in [draw.io format](docs/architecture/infrastructure.drawio).
 
@@ -47,7 +47,7 @@ This is a local infrastructure lab running through Vagrant and VMware Fusion.
 ## What I Implemented
 
 - Provisioned seven Linux virtual machines.
-- Configured Nginx round-robin load balancing.
+- Configured Nginx equal-weight round-robin load balancing.
 - Deployed the same Java WAR on two Tomcat instances.
 - Connected both application servers to a shared MySQL database.
 - Implemented Memcached caching.
@@ -91,7 +91,7 @@ Solving these problems improved my confidence with Linux administration, service
 
 ## Manual Provisioning
 
-The primary completed version of this project was configured manually using Linux commands on each VM. The VM definitions and manual deployment artifact are in the [manual provisioning folder](manual_provisioning/).
+The primary completed version of this project was configured manually using Linux commands on each VM. The VM definitions are in the [manual provisioning folder](manual_provisioning/).
 
 A separate beginner-friendly manual provisioning guide will document the installation steps without making this README too long.
 
