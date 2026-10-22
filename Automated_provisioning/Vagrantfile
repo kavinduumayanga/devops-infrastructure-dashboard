@@ -1,0 +1,216 @@
+# frozen_string_literal: true
+
+Vagrant.require_version ">= 2.3.0"
+
+# Load an optional local .env file. Existing shell environment variables win.
+env_file = File.join(__dir__, ".env")
+if File.file?(env_file)
+  File.foreach(env_file) do |line|
+    line = line.strip
+    next if line.empty? || line.start_with?("#") || !line.include?("=")
+
+    key, value = line.split("=", 2)
+    ENV[key] = value unless ENV.key?(key)
+  end
+end
+
+required_secrets = %w[
+  MYSQL_ROOT_PASSWORD
+  DB_PASSWORD
+  RABBITMQ_APP_PASSWORD
+  RABBITMQ_MONITOR_PASSWORD
+]
+
+missing_secrets = required_secrets.select { |name| ENV.fetch(name, "").empty? }
+unless missing_secrets.empty?
+  raise "Missing required secrets: #{missing_secrets.join(', ')}. Copy .env.example to .env and set strong values."
+end
+
+required_secrets.each do |name|
+  value = ENV.fetch(name)
+  unless value.length >= 16 && !value.start_with?("replace-with-") && value.match?(/\A[A-Za-z0-9._@%+=:-]+\z/)
+    raise "#{name} must be at least 16 characters and use only letters, numbers, and ._@%+=:-"
+  end
+end
+
+app_repository = "https://github.com/kavinduumayanga/devops-infrastructure-dashboard.git"
+app_git_ref = ENV.fetch("APP_GIT_REF", "main")
+
+# The provisioning profile is intentionally for one-at-a-time provisioning.
+# Starting all seven VMs with it would request more RAM than an 8 GB host has.
+memory_profiles = {
+  "provisioning" => {
+    "auto-db01" => 1536,
+    "auto-mc01" => 1024,
+    "auto-rmq01" => 1536,
+    "auto-nfs01" => 1024,
+    "auto-app01" => 2048,
+    "auto-app02" => 2048,
+    "auto-web01" => 768
+  },
+  "runtime" => {
+    "auto-db01" => 1024,
+    "auto-mc01" => 512,
+    "auto-rmq01" => 768,
+    "auto-nfs01" => 512,
+    "auto-app01" => 1024,
+    "auto-app02" => 1024,
+    "auto-web01" => 512
+  }
+}.freeze
+
+memory_profile = ENV.fetch("VM_MEMORY_PROFILE", "runtime")
+unless memory_profiles.key?(memory_profile)
+  raise "VM_MEMORY_PROFILE must be 'provisioning' or 'runtime'"
+end
+
+vm_memory = memory_profiles.fetch(memory_profile)
+warn "[memory] Using #{memory_profile} profile (#{vm_memory.values.sum} MB total if all seven VMs run)."
+if memory_profile == "provisioning"
+  warn "[memory] Provision VMs one at a time; do not start all seven with this profile on an 8 GB host."
+end
+
+Vagrant.configure("2") do |config|
+  config.ssh.insert_key = true
+
+  # Resolve automated hostnames inside these guests only. Never overwrite the
+  # host mappings used by the separate manual Vagrant project.
+  config.hostmanager.enabled = true
+  config.hostmanager.manage_host = false
+  config.hostmanager.manage_guest = true
+
+  # Shell provisioners are uploaded by Vagrant. Disabling /vagrant prevents a
+  # local .env file from being exposed to every guest.
+  config.vm.synced_folder ".", "/vagrant", disabled: true
+
+  # 1. MySQL
+  config.vm.define "auto-db01" do |db01|
+    db01.vm.box = "bandit145/centos_stream9_arm"
+    db01.vm.hostname = "auto-db01"
+    db01.vm.network "private_network", ip: "192.168.56.33"
+
+    db01.vm.provision "file", source: "../db/init.sql", destination: "/tmp/devops-init.sql"
+    db01.vm.provision "shell",
+      path: "scripts/mysql.sh",
+      env: {
+        "MYSQL_ROOT_PASSWORD" => ENV.fetch("MYSQL_ROOT_PASSWORD"),
+        "DB_PASSWORD" => ENV.fetch("DB_PASSWORD")
+      }
+
+    db01.vm.provider "vmware_desktop" do |vmware|
+      vmware.vmx["memsize"] = "768"
+      vmware.vmx["numvcpus"] = "1"
+      vmware.gui = false
+      vmware.allowlist_verified = true
+    end
+  end
+
+  # 2. Memcached
+  config.vm.define "auto-mc01" do |mc01|
+    mc01.vm.box = "bandit145/centos_stream9_arm"
+    mc01.vm.hostname = "auto-mc01"
+    mc01.vm.network "private_network", ip: "192.168.56.34"
+    mc01.vm.provision "shell", path: "scripts/memcached.sh"
+
+    mc01.vm.provider "vmware_desktop" do |vmware|
+      vmware.vmx["memsize"] = "1024"
+      vmware.vmx["numvcpus"] = "1"
+      vmware.gui = false
+      vmware.allowlist_verified = true
+    end
+  end
+
+  # 3. RabbitMQ
+  config.vm.define "auto-rmq01" do |rmq01|
+    rmq01.vm.box = "bandit145/centos_stream9_arm"
+    rmq01.vm.hostname = "auto-rmq01"
+    rmq01.vm.network "private_network", ip: "192.168.56.35"
+    rmq01.vm.provision "shell",
+      path: "scripts/rabbitmq.sh",
+      env: {
+        "RABBITMQ_APP_PASSWORD" => ENV.fetch("RABBITMQ_APP_PASSWORD"),
+        "RABBITMQ_MONITOR_PASSWORD" => ENV.fetch("RABBITMQ_MONITOR_PASSWORD")
+      }
+
+    rmq01.vm.provider "vmware_desktop" do |vmware|
+      vmware.vmx["memsize"] = "768"
+      vmware.vmx["numvcpus"] = "1"
+      vmware.gui = false
+      vmware.allowlist_verified = true
+    end
+  end
+
+  # 4. NFS
+  config.vm.define "auto-nfs01" do |nfs01|
+    nfs01.vm.box = "bandit145/centos_stream9_arm"
+    nfs01.vm.hostname = "auto-nfs01"
+    nfs01.vm.network "private_network", ip: "192.168.56.36"
+    nfs01.vm.provision "shell", path: "scripts/nfs.sh"
+
+    nfs01.vm.provider "vmware_desktop" do |vmware|
+      vmware.vmx["memsize"] = "1024"
+      vmware.vmx["numvcpus"] = "1"
+      vmware.gui = false
+      vmware.allowlist_verified = true
+    end
+  end
+
+  # 5. Tomcat app01
+  config.vm.define "auto-app01" do |app01|
+    app01.vm.box = "bandit145/centos_stream9_arm"
+    app01.vm.hostname = "auto-app01"
+    app01.vm.network "private_network", ip: "192.168.56.31"
+    app01.vm.provision "shell",
+      path: "scripts/tomcat.sh",
+      args: ["auto-app01", "app01", app_repository, app_git_ref],
+      env: {
+        "DB_PASSWORD" => ENV.fetch("DB_PASSWORD"),
+        "RABBITMQ_APP_PASSWORD" => ENV.fetch("RABBITMQ_APP_PASSWORD"),
+        "RABBITMQ_MONITOR_PASSWORD" => ENV.fetch("RABBITMQ_MONITOR_PASSWORD")
+      }
+
+    app01.vm.provider "vmware_desktop" do |vmware|
+      vmware.vmx["memsize"] = "1024"
+      vmware.vmx["numvcpus"] = "1"
+      vmware.gui = false
+      vmware.allowlist_verified = true
+    end
+  end
+
+  # 6. Tomcat app02
+  config.vm.define "auto-app02" do |app02|
+    app02.vm.box = "bandit145/centos_stream9_arm"
+    app02.vm.hostname = "auto-app02"
+    app02.vm.network "private_network", ip: "192.168.56.32"
+    app02.vm.provision "shell",
+      path: "scripts/tomcat.sh",
+      args: ["auto-app02", "app02", app_repository, app_git_ref],
+      env: {
+        "DB_PASSWORD" => ENV.fetch("DB_PASSWORD"),
+        "RABBITMQ_APP_PASSWORD" => ENV.fetch("RABBITMQ_APP_PASSWORD"),
+        "RABBITMQ_MONITOR_PASSWORD" => ENV.fetch("RABBITMQ_MONITOR_PASSWORD")
+      }
+
+    app02.vm.provider "vmware_desktop" do |vmware|
+      vmware.vmx["memsize"] = "1024"
+      vmware.vmx["numvcpus"] = "1"
+      vmware.gui = false
+      vmware.allowlist_verified = true
+    end
+  end
+
+  # 7. Nginx
+  config.vm.define "auto-web01" do |web01|
+    web01.vm.box = "spox/ubuntu-arm"
+    web01.vm.hostname = "auto-web01"
+    web01.vm.network "private_network", ip: "192.168.56.30"
+    web01.vm.provision "shell", path: "scripts/nginx.sh"
+
+    web01.vm.provider "vmware_desktop" do |vmware|
+      vmware.vmx["memsize"] = "512"
+      vmware.vmx["numvcpus"] = "1"
+      vmware.gui = false
+      vmware.allowlist_verified = true
+    end
+  end
+end
