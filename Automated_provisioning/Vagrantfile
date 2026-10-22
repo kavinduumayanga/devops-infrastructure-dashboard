@@ -33,7 +33,7 @@ required_secrets.each do |name|
   end
 end
 
-app_repository = "https://github.com/kavinduumayanga/devops-infrastructure-dashboard.git"
+app_repository = "https://github.com/kavinduumayanga/devops-multi-tier-deployment.git"
 app_git_ref = ENV.fetch("APP_GIT_REF", "main")
 
 # The provisioning profile is intentionally for one-at-a-time provisioning.
