@@ -1,577 +1,100 @@
-# DevOps Infrastructure Dashboard
+# Multi-Tier Java Web Application Deployment & Infrastructure Monitoring
 
-A production-quality Java web application demonstrating multi-tier infrastructure deployment with Nginx load balancing, Apache Tomcat application servers, MySQL database, and Memcached caching.
+*A beginner-friendly, hands-on DevOps project using Vagrant, VMware Fusion, Linux, Nginx, Tomcat, MySQL, Memcached, RabbitMQ, and NFS.*
 
-![Java 21](https://img.shields.io/badge/Java-21-blue)
-![Jakarta Servlet](https://img.shields.io/badge/Jakarta_Servlet-6.0-green)
-![React](https://img.shields.io/badge/React-18-61dafb)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178c6)
+## Project Overview
+
+This is my first hands-on DevOps project, built to learn and practise DevOps fundamentals through real implementation. I manually configured multiple Linux virtual machines, deployed a Java application across two Tomcat servers, and created a dashboard that monitors the infrastructure hosting it instead of using a normal sample website. Along the way, I gained practical experience troubleshooting installation, networking, memory, and service configuration issues.
 
 ## Architecture
 
-```
-                  USERS
-                    |
-              NGINX SERVER
-           Reverse Proxy + LB
-                Port 80
-                    |
-           Round Robin Routing
-                    |
-          +---------+---------+
-          |                   |
-       TOMCAT 1            TOMCAT 2
-        app01                app02
-       Port 8080            Port 8080
-          |                   |
-          +---------+---------+
-                    |
-             SHARED SERVICES
-                    |
-        +-----------+-----------+
-        |                       |
-      MySQL                 Memcached
-     Database                 Cache
-```
+![Multi-tier Java web application architecture](docs/architecture/infrastructure.png)
 
-## Features
+The project runs locally across seven Linux virtual machines created with Vagrant and VMware Fusion. Nginx receives browser traffic and distributes requests between two Tomcat servers. The application servers share MySQL, Memcached, RabbitMQ, and NFS services, while the dashboard displays the health of the infrastructure.
 
-- **Real-time Instance Identification** — Displays which Tomcat instance served each request
-- **Load Balancing Demonstration** — Send test requests to visualize Nginx round-robin distribution
-- **MySQL Integration** — Full CRUD operations with HikariCP connection pooling
-- **Memcached Cache-Aside Pattern** — Demonstrates cache hit/miss with real timing
-- **Professional Dashboard UI** — Dark-themed, Grafana-inspired monitoring interface
-- **Infrastructure Topology** — Interactive SVG visualization of the deployment architecture
-- **Real Infrastructure Health** — Bounded HTTP, JDBC, cache, RabbitMQ, and NFS checks for all seven VMs
-- **Request Activity Tracking** — Client-observed metrics with charts and history
+The editable diagram is available in [draw.io format](docs/architecture/infrastructure.drawio).
 
-## Technology Stack
+## Technologies Used
 
-### Backend
-| Technology | Version | Purpose |
-|---|---|---|
-| Java | 21 | Runtime |
-| Jakarta Servlet API | 6.0 | Web framework |
-| Maven | 3.9+ | Build tool |
-| HikariCP | 5.1.0 | JDBC connection pooling |
-| MySQL Connector/J | 8.4.0 | Database driver |
-| spymemcached | 2.12.3 | Memcached client |
-| Jackson | 2.17.2 | JSON serialization |
-| SLF4J + Logback | 2.0.13 / 1.5.6 | Logging |
-
-### Frontend
-| Technology | Version | Purpose |
-|---|---|---|
-| React | 18.3 | UI framework |
-| TypeScript | 5.5 | Type safety |
-| Vite | 6.4 | Build tool |
-| Tailwind CSS | 3.4 | Styling |
-| Recharts | 2.12 | Charts |
-| Lucide React | 0.441 | Icons |
-| Vitest + Testing Library | 4.1 / 16 | Frontend component tests |
-
-## Quick Start
-
-### Prerequisites
-
-- Java 21 JDK
-- Maven 3.9+
-- Node.js 20+ (for frontend build only)
-- MySQL 8.0+
-- Memcached 1.6+
-
-### 1. Start Services (Native / Bare-Metal)
-
-This project runs directly on bare-metal systems, VMs, or local development machines without Docker.
-
-**On macOS (Homebrew):**
-```bash
-brew install mysql memcached
-brew services start mysql
-brew services start memcached
-```
-
-**On Ubuntu / Debian Linux:**
-```bash
-sudo apt update
-sudo apt install -y mysql-server memcached
-sudo systemctl start mysql memcached
-```
-
-*(Note: The dashboard operates gracefully even if MySQL or Memcached are not yet running, cleanly reporting their DOWN status.)*
-
-### 2. Initialize Database
-
-The initialization script creates `devops_demo` and `demo_records`, then adds
-the five demonstration rows only if the table is empty. It is safe to run
-again: it does not drop objects, delete records, overwrite records, or create
-duplicate seed rows.
-
-Run it locally against a MySQL server:
-
-```bash
-mysql -u root -p < db/init.sql
-```
-
-To initialize the lab database on `db01`:
-
-```bash
-scp db/init.sql db01:/tmp/devops-dashboard-init.sql
-ssh db01
-mysql -u root -p < /tmp/devops-dashboard-init.sql
-```
-
-Database accounts and grants are deliberately managed separately from this
-schema script. The two existing application accounts, `admin@192.168.56.22`
-and `admin@192.168.56.21`, should retain only the required `SELECT`, `INSERT`,
-`UPDATE`, and `DELETE` privileges on `devops_demo`. The script must not create
-`admin@%`: a `%` host allows the account to authenticate remotely from any
-network host and weakens the host restrictions already applied to the two
-Tomcat servers.
-
-Verify the table and seed data after initialization:
-
-```bash
-mysql -u root -p -D devops_demo -e "SHOW CREATE TABLE demo_records\G"
-mysql -u root -p -D devops_demo -e \
-  "SELECT id, name, description, created_at FROM demo_records ORDER BY id;"
-```
-
-### 3. Build the Application
-
-The Maven build installs the configured Node.js toolchain, builds the React
-frontend, and packages the frontend assets with the WAR:
-
-```bash
-mvn clean verify
-```
-
-The WAR file will be at: `target/devops-dashboard.war`
-
-### 4. Run / Deploy the Application
-
-**Option A: One-Command Run via Maven (No manual Tomcat installation needed)**
-```bash
-mvn package cargo:run
-```
-This automatically boots Apache Tomcat 10 on port 8080 and mounts the application at `http://localhost:8080/`.
-
-**Option B: Deploy to Standalone Apache Tomcat**
-Copy the WAR to your Tomcat's `webapps` directory:
-```bash
-cp target/devops-dashboard.war $CATALINA_HOME/webapps/
-```
-
-### 5. Configure Environment
-
-The same WAR is portable across both Tomcat servers because all database
-connection settings are read at runtime. For this lab deployment, both
-instances use the following non-secret connection details:
-
-```text
-MySQL Host: 192.168.56.25
-MySQL Port: 3306
-Database: devops_demo
-Application Username: admin
-```
-
-Do not put the database password in the WAR, source code, README, or Git. Set
-it securely on each application server at deployment time.
-
-For a standalone Tomcat installation, create
-`$CATALINA_HOME/bin/setenv.sh` on each server and restrict its permissions:
-
-```bash
-#!/bin/bash
-
-# Application
-export APP_ENV=production
-export APP_INSTANCE_ID="$(hostname)"
-
-# MySQL
-export DB_HOST=192.168.56.25
-export DB_PORT=3306
-export DB_NAME=devops_demo
-export DB_USER=admin
-export DB_PASSWORD='set-securely-on-this-server'
-export DB_POOL_SIZE=5
-export DB_CONNECTION_TIMEOUT_MS=5000
-
-# Memcached
-export MEMCACHED_HOST=192.168.56.24
-export MEMCACHED_PORT=11211
-export CACHE_TTL_SECONDS=60
-export CACHE_OPERATION_TIMEOUT_MS=3000
-
-# Infrastructure monitoring
-export INFRA_MONITORING_ENABLED=true
-export INFRA_MONITORING_INTERVAL_SECONDS=15
-export INFRA_MONITORING_TIMEOUT_MS=3000
-export NGINX_HEALTH_URL=http://192.168.56.20/nginx-health
-export APP01_HEALTH_URL=http://192.168.56.22:8080/devops-dashboard/api/instance
-export APP02_HEALTH_URL=http://192.168.56.21:8080/devops-dashboard/api/instance
-export RABBITMQ_HOST=192.168.56.23
-export RABBITMQ_PORT=5672
-export RABBITMQ_MANAGEMENT_URL=http://192.168.56.23:15672
-export RABBITMQ_MONITOR_USERNAME=devops_monitor
-export RABBITMQ_MONITOR_PASSWORD='set-securely-on-this-server'
-export NFS_MOUNT_PATH=/mnt/nfs-shared
-export NFS_EXPECTED_SERVER=192.168.56.26
-export NFS_EXPECTED_EXPORT=/srv/nfs/shared
-export NFS_WRITE_PROBE_ENABLED=false
-```
-
-```bash
-chmod 600 "$CATALINA_HOME/bin/setenv.sh"
-```
-
-Replace the password placeholder on each server without committing the
-resulting file. Alternatively, a systemd-managed Tomcat service can read the
-settings from a root-owned environment file. Add a service override with
-`sudo systemctl edit tomcat` (use the actual Tomcat unit name if different):
-
-```ini
-[Service]
-EnvironmentFile=/etc/devops-dashboard/database.env
-```
-
-Create `/etc/devops-dashboard/database.env` on both `app01` and `app02`:
-
-```dotenv
-DB_HOST=192.168.56.25
-DB_PORT=3306
-DB_NAME=devops_demo
-DB_USER=admin
-DB_PASSWORD=set-securely-on-this-server
-DB_POOL_SIZE=5
-DB_CONNECTION_TIMEOUT_MS=5000
-```
-
-Protect the environment file, reload systemd, and restart Tomcat:
-
-```bash
-sudo chmod 600 /etc/devops-dashboard/database.env
-sudo systemctl daemon-reload
-sudo systemctl restart tomcat
-```
-
-Tomcat does not load `.env` files automatically. Use `.env.example` as a
-reference, but configure environment variables through `setenv.sh`, the
-service manager, or your deployment platform. Leave `APP_INSTANCE_ID`
-unset to use the dynamically detected hostname, or assign a unique value
-per Tomcat instance.
-
-### 6. Access the Dashboard
-
-```
-http://localhost:8080/devops-dashboard/
-```
-
-## Configuration Reference
-
-| Variable | Default | Description |
-|---|---|---|
-| `APP_ENV` | `development` | Environment label |
-| `APP_INSTANCE_ID` | hostname | Instance identifier |
-| `DB_HOST` | `localhost` | MySQL host |
-| `DB_PORT` | `3306` | MySQL port |
-| `DB_NAME` | `devops_demo` | Database name |
-| `DB_USER` | `admin` | Database username |
-| `DB_PASSWORD` | *(empty)* | Database password |
-| `DB_POOL_SIZE` | `5` | HikariCP pool size |
-| `DB_CONNECTION_TIMEOUT_MS` | `5000` | Connection timeout |
-| `MEMCACHED_HOST` | `localhost` | Memcached host |
-| `MEMCACHED_PORT` | `11211` | Memcached port |
-| `CACHE_TTL_SECONDS` | `60` | Cache TTL |
-| `CACHE_OPERATION_TIMEOUT_MS` | `3000` | Cache operation timeout |
-| `INFRA_MONITORING_ENABLED` | `false` | Enables real probes; leave off for disconnected development |
-| `INFRA_MONITORING_INTERVAL_SECONDS` | `15` | Minimum age before a request refreshes the shared snapshot (5–3600) |
-| `INFRA_MONITORING_TIMEOUT_MS` | `3000` | Per-probe upper bound (250–30000) |
-| `NGINX_HEALTH_URL` | lab URL | Dedicated direct-return Nginx endpoint |
-| `APP01_HEALTH_URL` / `APP02_HEALTH_URL` | lab URLs | Direct Tomcat instance endpoints, never routed through Nginx |
-| `RABBITMQ_MANAGEMENT_URL` | *(empty)* | Management API base; empty credentials select TCP-only fallback |
-| `RABBITMQ_MONITOR_USERNAME` / `RABBITMQ_MONITOR_PASSWORD` | *(empty)* | Server-side monitoring identity |
-| `NFS_MOUNT_PATH` | `/mnt/nfs-shared` | Existing client mount to inspect |
-| `NFS_EXPECTED_SERVER` / `NFS_EXPECTED_EXPORT` | lab values | Expected mount identity |
-| `NFS_WRITE_PROBE_ENABLED` | `false` | Enables unique temporary write/read/delete check |
-
-## Deploying to Two Tomcat Servers
-
-### Deployment Steps
-
-1. On a trusted build host, check out or update the GitHub repository, review
-   the exact revision, and build the WAR once:
-   ```bash
-   git clone https://github.com/YOUR_ORG/devops-infrastructure-dashboard.git
-   cd devops-infrastructure-dashboard
-   # For an existing checkout: git pull --ff-only
-   git status --short
-   git rev-parse HEAD
-   mvn clean verify
-   sha256sum target/devops-dashboard.war
-   ```
-
-2. Copy the **same WAR** to both servers:
-   ```bash
-   scp target/devops-dashboard.war app01:/opt/tomcat/webapps/
-   scp target/devops-dashboard.war app02:/opt/tomcat/webapps/
-   ```
-
-   Compare the SHA-256 digest on both destinations before restarting. Preserve
-   the previous WAR outside `webapps` as the rollback artifact.
-
-3. Configure both servers with the database environment described above.
-   Use the same database settings and only vary `APP_INSTANCE_ID`:
-
-   **app01:**
-   ```bash
-   export APP_INSTANCE_ID=app01
-   ```
-
-   **app02:**
-   ```bash
-   export APP_INSTANCE_ID=app02
-   ```
-
-4. Both servers must point to MySQL at `192.168.56.25:3306`, database
-   `devops_demo`, and the same Memcached instance. The MySQL accounts are
-   host-scoped, but both use the application username `admin`.
-
-5. Restart one Tomcat at a time so Nginx can continue using the other instance,
-   verify it, and only then continue to the second. Verify database connectivity locally
-   through the deployed application:
-
-   ```bash
-   # Run on app01 and app02
-   curl -fsS http://localhost:8080/devops-dashboard/api/database/health
-   curl -fsS http://localhost:8080/devops-dashboard/api/infrastructure/health
-   curl -fsS http://localhost:8080/devops-dashboard/api/records
-   ```
-
-   If the MySQL client is installed, also test the network path and account
-   directly from each Tomcat server. `-p` prompts without exposing the
-   password in shell history:
-
-   ```bash
-   mysql -h 192.168.56.25 -P 3306 -u admin -p -D devops_demo \
-     -e "SELECT 1; SELECT COUNT(*) AS record_count FROM demo_records;"
-   ```
-
-6. Configure Nginx for round-robin load balancing:
-
-   ```nginx
-   upstream tomcat_backend {
-       server app01:8080;
-       server app02:8080;
-   }
-
-   server {
-       listen 80;
-       server_name your-domain.com;
-
-       location / {
-           proxy_pass http://tomcat_backend/devops-dashboard/;
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto $scheme;
-       }
-
-       # Returned by Nginx itself; never proxy this location to Tomcat.
-       location = /nginx-health {
-           access_log off;
-           default_type text/plain;
-           return 200 "healthy\n";
-       }
-   }
-   ```
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/instance` | Instance identification |
-| `GET` | `/api/system` | System information |
-| `GET` | `/api/database/health` | Database health check |
-| `GET` | `/api/records` | List demo records |
-| `POST` | `/api/records` | Create a record |
-| `DELETE` | `/api/records/{id}` | Delete a record |
-| `GET` | `/api/cache/health` | Cache health check |
-| `GET` | `/api/cache/demo` | Cache-aside demo |
-| `DELETE` | `/api/cache/demo` | Clear demo cache |
-| `GET` | `/api/cache/stats` | Cache statistics |
-| `GET` | `/api/infrastructure/health` | Cached normalized health for all seven infrastructure VMs |
-
-## Infrastructure Monitoring Operations
-
-The unified endpoint returns `UP`, `DOWN`, `UNKNOWN`, `CHECKING`, `STALE`, or
-`DEGRADED`, with check time, last successful time, measured latency, a safe
-display error, and only measurements actually returned by the service. A
-dependency failure remains an HTTP 200 API response with that service marked
-down; an unavailable monitoring subsystem is an API-level 503.
-
-The snapshot is request-triggered and shared inside each WAR instance for the
-configured interval. Probes use a fixed four-thread maximum and bounded queue,
-and the executor is stopped during WAR undeployment. Because the identical WAR
-runs on two Tomcats, each enabled Tomcat maintains its own small cache and may
-probe once per interval. Set `INFRA_MONITORING_ENABLED=false` on one instance
-if a single active monitoring origin is required; its dashboard reports
-`UNKNOWN` rather than inventing health.
-
-### Nginx
-
-Add the exact-match `/nginx-health` location shown above inside the `web01`
-server block, validate with `sudo nginx -t`, reload Nginx, and allow HTTP from
-both application VMs. The check proves that Nginx answers HTTP directly. It
-does not prove that either upstream Tomcat is healthy.
-
-### RabbitMQ least-privileged identity
-
-Create a dedicated identity on `rmq01`; do not give it the administrator tag.
-The `monitoring` tag permits management monitoring endpoints, while empty
-configure/write/read regexes prevent queue operations. Scope visibility to the
-`devops` vhost:
-
-```bash
-sudo rabbitmqctl add_user devops_monitor 'choose-a-long-random-secret'
-sudo rabbitmqctl set_user_tags devops_monitor monitoring
-sudo rabbitmqctl set_permissions -p devops devops_monitor '^$' '^$' '^$'
-```
-
-Store the secret only in root-owned Tomcat environment configuration. If the
-management URL or credentials are absent, the dashboard performs a TCP connect
-to port 5672 and reports `DEGRADED`; that result is connectivity only and no
-queue, connection, message, version, or memory metric is fabricated. An HTTP
-401/403 is reported as an authentication failure without returning credentials.
-
-### NFS
-
-Mount `192.168.56.26:/srv/nfs/shared` at `/mnt/nfs-shared` through the operating
-system before Tomcat starts. The application never mounts, unmounts, edits
-`/etc/fstab`, or overwrites application data. On Linux it validates
-`/proc/self/mountinfo` for an `nfs`/`nfs4` filesystem with the exact server,
-export, and mount point, then verifies read access. Unsupported platforms yield
-`UNKNOWN`. The optional write probe creates a UUID-named hidden file, reads it,
-and deletes it in `finally`; read-only verification is the safe default.
-
-NFS syscalls can remain blocked inside the kernel after Java cancels a timed-out
-task. The fixed executor prevents unlimited threads, but an unhealthy hard NFS
-mount can consume a worker until the kernel returns. OS mount timeout policy is
-therefore still important.
-
-### Network and troubleshooting
-
-Permit both app VMs to reach `web01:80`, each other on `8080`, `db01:3306`,
-`mc01:11211`, `rmq01:5672` and `15672`, and `nfs01:2049`. Keep the management
-API and Tomcat ports private; never expose monitoring credentials to frontend
-environment variables. Diagnose failures from each Tomcat host with direct
-`curl`/`nc` checks, confirm exact `APP_INSTANCE_ID` values (`app01`, `app02`),
-verify RabbitMQ user permissions, and inspect `findmnt -T /mnt/nfs-shared`.
-
-`GET /api/cache/demo` reports `HIT`, `MISS`, or `UNAVAILABLE` based on the
-actual cache lookup. If Memcached is unavailable, the data is served from
-MySQL and the response does not mislabel that fallback as a cache miss. If
-MySQL is also unavailable, the endpoint returns an error instead of empty
-success-shaped data. Cache-demo hit/miss charts are observed by the current
-browser session; Memcached server statistics are labeled separately.
-
-All API responses include:
-- `X-App-Instance` header identifying the serving instance
-- `X-Request-Id` header for request tracking
-- `Cache-Control: no-store` to avoid stale load-balancer samples
-
-## Dashboard Pages
-
-1. **Overview** — Service status cards + infrastructure topology
-2. **Application Servers** — Instance info + load balancing test
-3. **Database** — MySQL health + CRUD records table
-4. **Cache** — Cache-aside demo + hit/miss charts
-5. **Request Activity** — Request history + latency charts
-6. **System Information** — JVM, OS, memory details
-
-## Running Tests
-
-```bash
-mvn test
-npm --prefix src/main/frontend test
-```
-
-The Maven `verify` lifecycle runs both the frontend component tests and Java
-unit tests. Tests include:
-- Instance service (identity, system info, security redaction)
-- Validation utility (sanitization, field validation, ID parsing)
-- JSON serialization (Instant handling, null exclusion, API responses)
-- Cache demo service (hit, miss, fallback, invalidation)
-- Frontend loading and service status, API failures, cache actions, database CRUD, and request activity
-
-## Development
-
-### Frontend Development (hot-reload)
-
-```bash
-cd src/main/frontend
-npm run dev
-```
-
-The Vite dev server proxies `/api` requests to `http://localhost:8080/devops-dashboard`.
-
-### Project Structure
-
-```
-devops-infrastructure-dashboard/
-├── pom.xml
-├── db/init.sql
-├── .env.example
-├── src/main/
-│   ├── java/com/devops/dashboard/
-│   │   ├── api/            # Servlet endpoints
-│   │   ├── cache/          # Memcached service
-│   │   ├── config/         # Configuration & lifecycle
-│   │   ├── dto/            # API response DTOs
-│   │   ├── filter/         # Request filters (CORS, logging)
-│   │   ├── model/          # Data models
-│   │   ├── repository/     # JDBC repositories
-│   │   ├── service/        # Business logic
-│   │   └── util/           # JSON, validation utilities
-│   ├── frontend/           # React + TypeScript + Vite
-│   │   └── src/
-│   │       ├── components/ # UI components
-│   │       ├── pages/      # Page views
-│   │       ├── api.ts      # API client
-│   │       └── types.ts    # TypeScript types
-│   ├── resources/
-│   │   └── logback.xml     # Logging configuration
-│   └── webapp/
-│       └── WEB-INF/web.xml
-└── src/test/java/          # Unit tests
-```
-
-## Security Notes
-
-> **⚠️ Lab Environment Only**
->
-> This application exposes database write/delete and cache-clear operations
-> without authentication. Deploy only on trusted lab networks until
-> authentication and access controls are added.
-
-- SQL injection prevented via prepared statements
-- HTML input sanitized before storage
-- No credentials exposed in API responses or logs
-- Java home path redacted in system info
-- CORS restricted in production mode
-- Connection pool and cache timeouts configured
-- `npm audit` reports remaining Tailwind 3 build-tool advisories; its available fix requires a Tailwind 4 migration. The WAR serves compiled assets and does not bundle Node.js dependencies.
-
-## Troubleshooting
-
-| Issue | Solution |
+| Technology | Purpose |
 |---|---|
-| Database connection refused | Check MySQL is running and `DB_HOST`/`DB_PORT` are correct |
-| Memcached unavailable | Cache operations gracefully fall back to MySQL |
-| Frontend 404 | Run `mvn clean verify` to build and package the frontend assets |
-| Same instance on every request | Nginx may not be configured; direct Tomcat access always shows one instance |
-| Environment variables not loaded | Create `setenv.sh` in Tomcat's `bin/` directory |
+| Vagrant | Creating and managing the virtual machines |
+| VMware Fusion | Running the virtual machines locally |
+| Linux | Server operating systems |
+| Nginx | Reverse proxy and round-robin load balancing |
+| Apache Tomcat | Hosting the Java web application |
+| Java + Maven | Application development and WAR building |
+| MySQL | Shared application database |
+| Memcached | Shared application cache |
+| RabbitMQ | Message broker and infrastructure monitoring target |
+| NFS | Shared file storage for the application servers |
+| Git & GitHub | Source control and project hosting |
 
-## License
+## Infrastructure Setup
 
-This project is intended for DevOps learning and portfolio demonstration.
+This is a local infrastructure lab running through Vagrant and VMware Fusion.
+
+| VM | IP address | Role |
+|---|---|---|
+| `web01` | `192.168.56.20` | Nginx |
+| `app01` | `192.168.56.22` | Tomcat 1 |
+| `app02` | `192.168.56.21` | Tomcat 2 |
+| `db01` | `192.168.56.25` | MySQL |
+| `mc01` | `192.168.56.24` | Memcached |
+| `rmq01` | `192.168.56.23` | RabbitMQ |
+| `nfs01` | `192.168.56.26` | NFS |
+
+## What I Implemented
+
+- Provisioned seven Linux virtual machines.
+- Configured Nginx round-robin load balancing.
+- Deployed the same Java WAR on two Tomcat instances.
+- Connected both application servers to a shared MySQL database.
+- Implemented Memcached caching.
+- Configured RabbitMQ and broker monitoring.
+- Configured NFS shared storage and automatic mounting.
+- Built a Java dashboard that monitors the seven-VM infrastructure.
+- Tested Tomcat failover and recovery through Nginx.
+
+## Project Screenshots
+
+Deployment screenshots have not been added to the repository yet. The following real screenshots are still needed:
+
+| Planned file | Screenshot needed |
+|---|---|
+| `docs/screenshots/dashboard-overview.png` | Infrastructure Monitoring Dashboard |
+| `docs/screenshots/infrastructure-topology.png` | Infrastructure Topology |
+| `docs/screenshots/load-balancing.png` | Nginx Load Balancing Test |
+| `docs/screenshots/database-cache.png` | Database and Memcached Monitoring |
+| `docs/screenshots/vagrant-status.png` | Vagrant VM Status, if available |
+
+Only screenshots from the working project will be added here.
+
+## Challenges & What I Learned
+
+This project helped me understand that DevOps work involves a lot of careful troubleshooting. Some of the issues I worked through included:
+
+- Limited VM memory during package installation.
+- MySQL and MariaDB package conflicts.
+- MySQL initialization problems.
+- Selecting and configuring the correct Java version.
+- Linux firewall rules and network connectivity between VMs.
+- Memcached startup and private-network binding issues.
+
+Solving these problems improved my confidence with Linux administration, service logs, networking, and multi-server application deployment. Detailed commands and troubleshooting notes will be documented separately.
+
+## Manual Provisioning
+
+The primary completed version of this project was configured manually using Linux commands on each VM. The VM definitions and manual deployment artifact are in the [manual provisioning folder](manual_provisioning/).
+
+A separate beginner-friendly manual provisioning guide will document the installation steps without making this README too long.
+
+## Automated Provisioning
+
+I also explored Bash-based automated provisioning in the [Automated_provisioning folder](Automated_provisioning/). This was a learning exercise, and the complete automated workflow has not yet been fully verified. The manually provisioned infrastructure remains the primary completed project.
+
+## Future Improvements
+
+- Use Ansible for configuration automation.
+- Add GitHub Actions for CI/CD practice.
+- Explore additional monitoring and centralized logging.
