@@ -58,17 +58,23 @@ This is a local infrastructure lab running through Vagrant and VMware Fusion.
 
 ## Project Screenshots
 
-Deployment screenshots have not been added to the repository yet. The following real screenshots are still needed:
+### Infrastructure Monitoring Dashboard
 
-| Planned file | Screenshot needed |
-|---|---|
-| `docs/screenshots/dashboard-overview.png` | Infrastructure Monitoring Dashboard |
-| `docs/screenshots/infrastructure-topology.png` | Infrastructure Topology |
-| `docs/screenshots/load-balancing.png` | Nginx Load Balancing Test |
-| `docs/screenshots/database-cache.png` | Database and Memcached Monitoring |
-| `docs/screenshots/vagrant-status.png` | Vagrant VM Status, if available |
+![Infrastructure Monitoring Dashboard](docs/screenshots/02-dashboard.png)
 
-Only screenshots from the working project will be added here.
+*The dashboard overview shows the active Tomcat instance, MySQL and Memcached health, and the infrastructure topology.*
+
+### Nginx Load Balancing Test
+
+![Nginx Load Balancing Test](docs/screenshots/03-load-balancing.png)
+
+*Test requests alternate between `app01` and `app02`, demonstrating Nginx round-robin load balancing across both Tomcat servers.*
+
+### Vagrant VM Status
+
+![Vagrant VM Status](docs/screenshots/04-vagrant-status.png)
+
+*Vagrant reports all seven manually provisioned virtual machines running with the VMware Desktop provider.*
 
 ## Challenges & What I Learned
 
