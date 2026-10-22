@@ -129,6 +129,16 @@ export interface CacheEvent {
   durationMs: number;
 }
 
-export type ServiceStatus = 'UP' | 'DOWN' | 'UNKNOWN' | 'LOADING';
+/**
+ * Consistent status model used throughout the dashboard.
+ *
+ * - UP:       Supported by a relevant successful check.
+ * - DOWN:     An attempted check returned failure.
+ * - UNKNOWN:  No monitoring data exists (unmonitored services).
+ * - LOADING:  A check is in progress.
+ * - STALE:    The last observation is no longer recent enough.
+ * - CHECKING: A health check request is currently in flight.
+ */
+export type ServiceStatus = 'UP' | 'DOWN' | 'UNKNOWN' | 'LOADING' | 'STALE' | 'CHECKING';
 
 export type PageId = 'overview' | 'servers' | 'database' | 'cache' | 'requests' | 'system';

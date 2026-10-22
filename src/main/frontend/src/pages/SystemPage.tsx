@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Monitor, Cpu, MemoryStick, Server } from 'lucide-react';
+import { Monitor, Cpu, MemoryStick, Server, RefreshCw } from 'lucide-react';
 import { fetchSystemInfo } from '../api';
-import { SectionHeader, SkeletonCard, ErrorState, MetricRow } from '../components/ui';
+import { SectionHeader, SkeletonCard, ErrorState, MetricRow, ProgressBar } from '../components/ui';
 import type { SystemInfo } from '../types';
 
 export default function SystemPage() {
@@ -28,7 +28,7 @@ export default function SystemPage() {
   if (loading) {
     return (
       <div>
-        <SectionHeader title="System Information" subtitle="Runtime environment and JVM details." />
+        <SectionHeader title="System Information" subtitle="Runtime environment and JVM details for the responding instance." />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <SkeletonCard />
           <SkeletonCard />
@@ -42,7 +42,7 @@ export default function SystemPage() {
   if (error || !sysInfo) {
     return (
       <div>
-        <SectionHeader title="System Information" subtitle="Runtime environment and JVM details." />
+        <SectionHeader title="System Information" subtitle="Runtime environment and JVM details for the responding instance." />
         <ErrorState message={error || 'No data available'} onRetry={loadSystemInfo} />
       </div>
     );
@@ -52,15 +52,32 @@ export default function SystemPage() {
     ? Math.round((sysInfo.heapUsedMB / sysInfo.heapMaxMB) * 100)
     : 0;
 
+  const heapColor: 'emerald' | 'amber' | 'red' =
+    heapPercent > 80 ? 'red' : heapPercent > 60 ? 'amber' : 'emerald';
+
   return (
     <div>
-      <SectionHeader title="System Information" subtitle="Runtime environment and JVM details." />
+      <SectionHeader
+        title="System Information"
+        subtitle="Runtime environment and JVM details for the responding instance."
+        action={
+          <button
+            onClick={loadSystemInfo}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+              bg-slate-700/30 text-slate-300 border border-slate-600/50
+              hover:bg-slate-700/50 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Refresh
+          </button>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Instance Identity */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+        <div className="surface-card p-5">
           <div className="flex items-center gap-2.5 mb-4">
-            <Server className="w-4 h-4 text-blue-400" />
+            <Server className="w-4 h-4 text-cyan-400" />
             <h3 className="text-sm font-semibold text-slate-200">Instance Identity</h3>
           </div>
           <div className="space-y-0.5">
@@ -73,21 +90,21 @@ export default function SystemPage() {
         </div>
 
         {/* Operating System */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+        <div className="surface-card p-5">
           <div className="flex items-center gap-2.5 mb-4">
-            <Monitor className="w-4 h-4 text-cyan-400" />
+            <Monitor className="w-4 h-4 text-blue-400" />
             <h3 className="text-sm font-semibold text-slate-200">Operating System</h3>
           </div>
           <div className="space-y-0.5">
             <MetricRow label="OS" value={sysInfo.osName} />
             <MetricRow label="Version" value={sysInfo.osVersion} />
             <MetricRow label="Architecture" value={sysInfo.osArch} />
-            <MetricRow label="Processors" value={sysInfo.availableProcessors} />
+            <MetricRow label="Processors" value={`${sysInfo.availableProcessors} cores`} />
           </div>
         </div>
 
         {/* Java Runtime */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+        <div className="surface-card p-5">
           <div className="flex items-center gap-2.5 mb-4">
             <Cpu className="w-4 h-4 text-purple-400" />
             <h3 className="text-sm font-semibold text-slate-200">Java Runtime</h3>
@@ -102,8 +119,8 @@ export default function SystemPage() {
           </div>
         </div>
 
-        {/* Memory */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+        {/* JVM Memory */}
+        <div className="surface-card p-5">
           <div className="flex items-center gap-2.5 mb-4">
             <MemoryStick className="w-4 h-4 text-emerald-400" />
             <h3 className="text-sm font-semibold text-slate-200">JVM Memory</h3>
@@ -111,20 +128,16 @@ export default function SystemPage() {
 
           {/* Memory bar */}
           <div className="mb-4">
-            <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="text-slate-500">Heap Usage</span>
-              <span className="text-slate-300 font-mono">{sysInfo.heapUsedMB}MB / {sysInfo.heapMaxMB}MB</span>
+            <ProgressBar
+              value={sysInfo.heapUsedMB}
+              max={sysInfo.heapMaxMB}
+              label="Heap Usage"
+              color={heapColor}
+            />
+            <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+              <span>{sysInfo.heapUsedMB} MB used</span>
+              <span>{sysInfo.heapMaxMB} MB max</span>
             </div>
-            <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  heapPercent > 80 ? 'bg-red-400' :
-                  heapPercent > 60 ? 'bg-amber-400' : 'bg-emerald-400'
-                }`}
-                style={{ width: `${heapPercent}%` }}
-              />
-            </div>
-            <p className="text-[10px] text-slate-600 mt-1">{heapPercent}% utilized</p>
           </div>
 
           <div className="space-y-0.5">
@@ -133,6 +146,10 @@ export default function SystemPage() {
             <MetricRow label="Total Memory" value={`${sysInfo.totalMemoryMB} MB`} mono />
             <MetricRow label="Max Memory" value={`${sysInfo.maxMemoryMB} MB`} mono />
           </div>
+
+          <p className="text-[10px] text-slate-600 mt-3 border-t border-slate-800/30 pt-2">
+            JVM heap memory for the responding Tomcat instance — not total VM or cluster memory.
+          </p>
         </div>
       </div>
     </div>

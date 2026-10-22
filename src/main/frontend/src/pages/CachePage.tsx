@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
-import { HardDrive, Download, Trash2, RotateCcw, BarChart3 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { HardDrive, Download, Trash2, RotateCcw, BarChart3, Info } from 'lucide-react';
 import { fetchCacheHealth, fetchCacheDemo, clearCacheDemo, fetchCacheStats } from '../api';
-import { SectionHeader, StatusCard, MetricRow, SkeletonCard, ErrorState, Badge } from '../components/ui';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
+import {
+  SectionHeader, StatusCard, MetricRow, SkeletonCard, ErrorState, Badge, Toast,
+} from '../components/ui';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import type { CacheHealth, CacheDemoResponse, CacheStats, CacheEvent } from '../types';
 
 export default function CachePage() {
@@ -12,7 +14,7 @@ export default function CachePage() {
   const [loading, setLoading] = useState(true);
   const [demoLoading, setDemoLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const [notification, setNotification] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Local hit/miss tracking
   const [cacheEvents, setCacheEvents] = useState<CacheEvent[]>([]);
@@ -61,17 +63,17 @@ export default function CachePage() {
           setMissCount(c => c + 1);
         }
 
-        showNotification(
+        showNotif(
           demo.cacheStatus === 'UNAVAILABLE'
-            ? `Memcached unavailable; data served from ${demo.source} in ${demo.durationMs}ms`
+            ? `Memcached unavailable — data served from ${demo.source} in ${demo.durationMs}ms`
             : `Cache ${demo.cacheStatus}: Data from ${demo.source} in ${demo.durationMs}ms`,
-          demo.cacheStatus === 'UNAVAILABLE' || demo.cacheStatus === 'ERROR' ? 'error' : 'success'
+          demo.cacheStatus === 'UNAVAILABLE' || demo.cacheStatus === 'ERROR' ? 'error' : 'success',
         );
       } else {
-        showNotification(res.error || 'Cache demo failed', 'error');
+        showNotif(res.error || 'Cache demo failed', 'error');
       }
     } catch (e) {
-      showNotification(e instanceof Error ? e.message : 'Cache demo failed', 'error');
+      showNotif(e instanceof Error ? e.message : 'Cache demo failed', 'error');
     }
     setDemoLoading(false);
   }
@@ -80,12 +82,12 @@ export default function CachePage() {
     try {
       const res = await clearCacheDemo();
       if (res.success) {
-        showNotification('Demo cache cleared', 'success');
+        showNotif('Demo cache cleared', 'success');
       } else {
-        showNotification(res.error || 'Failed to clear cache', 'error');
+        showNotif(res.error || 'Failed to clear cache', 'error');
       }
-    } catch (e: any) {
-      showNotification('Failed to clear cache', 'error');
+    } catch {
+      showNotif('Failed to clear cache', 'error');
     }
   }
 
@@ -94,20 +96,15 @@ export default function CachePage() {
     setMissCount(0);
     setCacheEvents([]);
     setLastDemo(null);
-    showNotification('Local statistics reset', 'success');
+    showNotif('Local statistics reset', 'info');
   }
 
-  function showNotification(msg: string, type: 'success' | 'error') {
+  function showNotif(msg: string, type: 'success' | 'error' | 'info') {
     setNotification({ msg, type });
     setTimeout(() => setNotification(null), 3000);
   }
 
   // Chart data
-  const hitMissData = [
-    { name: 'Hits', value: hitCount, fill: '#10b981' },
-    { name: 'Misses', value: missCount, fill: '#f59e0b' },
-  ];
-
   const eventChartData = cacheEvents.slice(0, 20).reverse().map((e, i) => ({
     index: i + 1,
     duration: e.durationMs,
@@ -135,18 +132,16 @@ export default function CachePage() {
     );
   }
 
+  const cacheStatus = cacheHealth?.status === 'UP' ? 'UP' as const : 'DOWN' as const;
+
   return (
     <div>
       <SectionHeader title="Cache" subtitle="Memcached integration and cache-aside pattern demonstration." />
 
-      {/* Notification */}
+      {/* Toast */}
       {notification && (
-        <div className={`mb-4 px-4 py-2.5 rounded-lg text-xs font-medium animate-slide-up
-          ${notification.type === 'success'
-            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-            : 'bg-red-500/10 text-red-400 border border-red-500/20'
-          }`}>
-          {notification.msg}
+        <div className="mb-4">
+          <Toast message={notification.msg} type={notification.type} onDismiss={() => setNotification(null)} />
         </div>
       )}
 
@@ -154,7 +149,7 @@ export default function CachePage() {
         {/* Cache Health */}
         <StatusCard
           title="Memcached Health"
-          status={cacheHealth?.status === 'UP' ? 'UP' : 'DOWN'}
+          status={cacheStatus}
           icon={<HardDrive className="w-4 h-4" />}
         >
           <div className="space-y-0.5">
@@ -162,35 +157,44 @@ export default function CachePage() {
             <MetricRow label="Latency" value={cacheHealth?.latencyMs != null ? `${cacheHealth.latencyMs}ms` : 'N/A'} mono />
             <MetricRow label="R/W Test" value={cacheHealth?.readWriteTest || 'N/A'} />
             <MetricRow label="TTL" value={cacheHealth?.ttlSeconds != null ? `${cacheHealth.ttlSeconds}s` : 'N/A'} />
+            <MetricRow label="Servers" value={cacheHealth?.availableServers ?? 'N/A'} />
+            {cacheHealth?.error && (
+              <MetricRow label="Error" value={<span className="text-red-400">{cacheHealth.error}</span>} />
+            )}
           </div>
         </StatusCard>
 
         {/* Cache Demo Panel */}
-        <div className="xl:col-span-2 bg-slate-900/50 border border-slate-800 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-slate-200 mb-3">Cache-Aside Pattern Demo</h3>
-          <p className="text-xs text-slate-500 mb-4">
-            Fetch data to demonstrate the cache-aside pattern. First request hits MySQL and caches the result.
-            Subsequent requests serve from Memcached until the cache expires or is cleared.
-          </p>
+        <div className="xl:col-span-2 surface-card p-5">
+          <h3 className="text-sm font-semibold text-slate-200 mb-2">Cache-Aside Pattern Demo</h3>
+          <div className="flex items-start gap-1.5 mb-4">
+            <Info className="w-3 h-3 text-slate-600 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-slate-500 leading-relaxed">
+              The application uses a cache-aside pattern: on a request, it checks Memcached first.
+              On a <Badge variant="amber">MISS</Badge>, it queries MySQL, returns the data, and writes
+              it to Memcached. Subsequent requests get a <Badge variant="green">HIT</Badge> from cache
+              until the TTL expires or the cache is cleared. Memcached does not query MySQL itself.
+            </p>
+          </div>
 
           <div className="flex flex-wrap gap-2 mb-4">
             <button
               id="fetch-cache-data"
               onClick={handleFetchData}
               disabled={demoLoading}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium
-                bg-blue-500/10 text-blue-400 border border-blue-500/20
-                hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium
+                bg-cyan-500/10 text-cyan-400 border border-cyan-500/20
+                hover:bg-cyan-500/15 disabled:opacity-50 transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
-              {demoLoading ? 'Fetching...' : 'Fetch Data'}
+              {demoLoading ? 'Fetching…' : 'Fetch Data'}
             </button>
             <button
               id="clear-demo-cache"
               onClick={handleClearCache}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium
                 bg-amber-500/10 text-amber-400 border border-amber-500/20
-                hover:bg-amber-500/20 transition-colors"
+                hover:bg-amber-500/15 transition-colors"
             >
               <Trash2 className="w-3.5 h-3.5" />
               Clear Demo Cache
@@ -198,9 +202,9 @@ export default function CachePage() {
             <button
               id="reset-cache-stats"
               onClick={handleResetStats}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium
-                bg-slate-700/50 text-slate-300 border border-slate-600
-                hover:bg-slate-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium
+                bg-slate-700/30 text-slate-300 border border-slate-600/50
+                hover:bg-slate-700/50 transition-colors"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               Reset Local Statistics
@@ -209,10 +213,10 @@ export default function CachePage() {
 
           {/* Last demo result */}
           {lastDemo && (
-            <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700 animate-slide-up">
+            <div className="p-3 rounded-xl border border-[var(--border-default)] bg-[var(--surface-3)]" style={{ animation: 'slideUp 200ms ease-out' }}>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 <div>
-                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">Source</span>
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">Data Source</span>
                   <p className="text-xs font-medium mt-0.5">
                     <Badge variant={lastDemo.source === 'MEMCACHED' ? 'green' : 'blue'}>
                       {lastDemo.source}
@@ -220,7 +224,7 @@ export default function CachePage() {
                   </p>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">Cache Status</span>
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">Cache Result</span>
                   <p className="text-xs font-medium mt-0.5">
                     <Badge
                       variant={
@@ -244,8 +248,8 @@ export default function CachePage() {
                   <p className="text-xs font-mono text-slate-300 mt-0.5">{lastDemo.durationMs}ms</p>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">Records</span>
-                  <p className="text-xs text-slate-300 mt-0.5">{lastDemo.data?.length ?? 0}</p>
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">TTL</span>
+                  <p className="text-xs font-mono text-slate-300 mt-0.5">{lastDemo.cacheTtlSeconds}s</p>
                 </div>
               </div>
             </div>
@@ -256,8 +260,8 @@ export default function CachePage() {
       {/* Charts Row */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
         {/* Hit/Miss Distribution */}
-        {(hitCount > 0 || missCount > 0) && (
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+        {(hitCount > 0 || missCount > 0) ? (
+          <div className="surface-card p-5">
             <div className="flex items-center gap-2.5 mb-4">
               <BarChart3 className="w-4 h-4 text-slate-400" />
               <h3 className="text-sm font-semibold text-slate-200">Hit/Miss Distribution</h3>
@@ -267,12 +271,12 @@ export default function CachePage() {
                 <p className="text-2xl font-bold text-emerald-400">{hitCount}</p>
                 <p className="text-xs text-slate-500">Cache Hits</p>
               </div>
-              <div className="h-16 w-px bg-slate-700" />
+              <div className="h-16 w-px bg-[var(--border-default)]" />
               <div className="text-center">
                 <p className="text-2xl font-bold text-amber-400">{missCount}</p>
                 <p className="text-xs text-slate-500">Cache Misses</p>
               </div>
-              <div className="h-16 w-px bg-slate-700" />
+              <div className="h-16 w-px bg-[var(--border-default)]" />
               <div className="text-center">
                 <p className="text-2xl font-bold text-slate-300">
                   {hitCount + missCount > 0 ? Math.round((hitCount / (hitCount + missCount)) * 100) : 0}%
@@ -284,11 +288,15 @@ export default function CachePage() {
               Client-observed statistics for this browser session
             </p>
           </div>
+        ) : (
+          <div className="surface-card p-5 flex items-center justify-center">
+            <p className="text-xs text-slate-500">No observations yet. Click "Fetch Data" to start.</p>
+          </div>
         )}
 
         {/* Response Time Chart */}
-        {eventChartData.length > 0 && (
-          <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+        {eventChartData.length > 0 ? (
+          <div className="surface-card p-5">
             <div className="flex items-center gap-2.5 mb-4">
               <BarChart3 className="w-4 h-4 text-slate-400" />
               <h3 className="text-sm font-semibold text-slate-200">Response Latency</h3>
@@ -296,13 +304,13 @@ export default function CachePage() {
             <div className="h-40">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={eventChartData} barSize={12}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis dataKey="index" tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} unit="ms" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-default)" />
+                  <XAxis dataKey="index" tick={{ fill: 'var(--text-secondary)', fontSize: 10 }} />
+                  <YAxis tick={{ fill: 'var(--text-secondary)', fontSize: 10 }} unit="ms" />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#1a2332',
-                      border: '1px solid #334155',
+                      backgroundColor: 'var(--surface-3)',
+                      border: '1px solid var(--border-hover)',
                       borderRadius: '8px',
                       fontSize: '12px',
                     }}
@@ -311,7 +319,7 @@ export default function CachePage() {
                     {eventChartData.map((entry, i) => (
                       <Cell
                         key={i}
-                        fill={entry.type === 'HIT' ? '#10b981' : entry.type === 'ERROR' ? '#ef4444' : '#f59e0b'}
+                        fill={entry.type === 'HIT' ? '#34d399' : entry.type === 'ERROR' ? '#f87171' : '#fbbf24'}
                       />
                     ))}
                   </Bar>
@@ -319,25 +327,29 @@ export default function CachePage() {
               </ResponsiveContainer>
             </div>
             <div className="flex justify-center gap-4 mt-2">
-              <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" /> Hit
+              <span className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" /> Hit
               </span>
-              <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-amber-500" /> Miss
+              <span className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-400" /> Miss
               </span>
               {cacheEvents.some(event => event.type === 'ERROR') && (
-                <span className="text-[10px] text-slate-500 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-red-500" /> Unavailable
+                <span className="text-[10px] text-slate-500 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-red-400" /> Unavailable
                 </span>
               )}
             </div>
+          </div>
+        ) : (
+          <div className="surface-card p-5 flex items-center justify-center">
+            <p className="text-xs text-slate-500">No latency data yet</p>
           </div>
         )}
       </div>
 
       {/* Cache Server Stats */}
       {cacheStats && cacheStats.status === 'AVAILABLE' && (
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5">
+        <div className="surface-card p-5 mb-4">
           <h3 className="text-sm font-semibold text-slate-200 mb-3">Memcached Server Statistics</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div>
@@ -362,13 +374,13 @@ export default function CachePage() {
 
       {/* Cache Events Log */}
       {cacheEvents.length > 0 && (
-        <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-5 mt-4">
+        <div className="surface-card p-5">
           <h3 className="text-sm font-semibold text-slate-200 mb-3">Cache Events Log</h3>
           <div className="max-h-64 overflow-y-auto space-y-1.5">
             {cacheEvents.map((e, i) => (
-              <div key={i} className="flex items-center justify-between py-1.5 px-2.5 bg-slate-800/30 rounded-md text-xs">
+              <div key={i} className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-slate-800/15 text-xs">
                 <span className="text-slate-500">{new Date(e.timestamp).toLocaleTimeString()}</span>
-                <Badge variant={e.type === 'HIT' ? 'green' : 'amber'}>{e.type}</Badge>
+                <Badge variant={e.type === 'HIT' ? 'green' : e.type === 'ERROR' ? 'red' : 'amber'}>{e.type}</Badge>
                 <span className="text-slate-400">{e.source}</span>
                 <span className="text-slate-400 font-mono">{e.durationMs}ms</span>
               </div>

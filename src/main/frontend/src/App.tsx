@@ -10,10 +10,13 @@ import CachePage from './pages/CachePage';
 import RequestsPage from './pages/RequestsPage';
 import SystemPage from './pages/SystemPage';
 
+type RefreshState = 'idle' | 'refreshing' | 'paused' | 'error';
+
 export default function App() {
   const [currentPage, setCurrentPage] = useState<PageId>('overview');
   const [refreshKey, setRefreshKey] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [refreshState, setRefreshState] = useState<RefreshState>('idle');
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [environment, setEnvironment] = useState('Loading');
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (
@@ -21,12 +24,15 @@ export default function App() {
   ));
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const intervalRef = useRef<number | null>(null);
+  const visibilityRef = useRef(true);
 
+  // Apply theme immediately to prevent flash
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('dashboard-theme', theme);
   }, [theme]);
 
+  // Fetch environment on mount
   useEffect(() => {
     fetchInstance()
       .then(response => {
@@ -37,15 +43,30 @@ export default function App() {
   }, []);
 
   const handleRefresh = useCallback(() => {
+    setRefreshState('refreshing');
     setRefreshKey(k => k + 1);
     setLastRefreshed(new Date());
+    // Reset to idle after a brief period
+    setTimeout(() => setRefreshState(prev => prev === 'refreshing' ? 'idle' : prev), 1500);
+  }, []);
+
+  // Auto-refresh with visibility awareness
+  useEffect(() => {
+    function handleVisibility() {
+      visibilityRef.current = !document.hidden;
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, []);
 
   useEffect(() => {
     if (autoRefresh) {
       intervalRef.current = window.setInterval(() => {
-        handleRefresh();
-      }, 15000);
+        // Pause unnecessary polling when tab is hidden
+        if (visibilityRef.current) {
+          handleRefresh();
+        }
+      }, 10000); // 10 second interval
     } else if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
@@ -68,16 +89,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-950 overflow-hidden">
-      {/* Mobile sidebar overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
+    <div className="flex h-screen surface-app overflow-hidden">
       <Sidebar
         currentPage={currentPage}
         onNavigate={(page) => {
@@ -85,13 +97,15 @@ export default function App() {
           setSidebarOpen(false);
         }}
         isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
-      {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header
+          currentPage={currentPage}
           lastRefreshed={lastRefreshed}
           autoRefresh={autoRefresh}
+          refreshState={autoRefresh ? (refreshState === 'refreshing' ? 'refreshing' : 'idle') : 'paused'}
           environment={environment}
           theme={theme}
           onToggleAutoRefresh={() => setAutoRefresh(a => !a)}
@@ -101,7 +115,7 @@ export default function App() {
         />
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
-          <div className="max-w-[1600px] mx-auto animate-fade-in">
+          <div className="max-w-[1600px] mx-auto" style={{ animation: 'fadeIn 300ms ease-out' }}>
             {renderPage()}
           </div>
         </main>
